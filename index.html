@@ -372,10 +372,8 @@ select.form-input option{background:var(--bg1);color:var(--txt0)}
   /* ── КОЛИ ВІДКРИТО ЧАТ: клас mob-open на .main ── */
   .main.mob-open{transform:translateX(0)}
 
-  /* Welcome screen ховається на мобільному (не потрібен) */
-  .main .w-cont p{font-size:9px}
-  .w-logo{width:52px;height:52px;font-size:26px}
-  .w-cont h2{font-size:16px}
+  /* Welcome screen повністю ховається на мобільному */
+  #welcome{display:none!important}
 
   /* ── Хедер чату ── */
   .chat-hdr{padding:10px 12px;gap:8px}
@@ -805,9 +803,17 @@ async function initApp(){
   buildEmojiGrid('reg-ep',e=>selRegEmoji=e,selRegEmoji);
   buildEmojiGrid('ct-ep',e=>selCreateEmoji=e,selCreateEmoji);
   renderAccSwitcher();renderContacts();
+  // На мобільному одразу ховаємо main — тільки список чатів
+  if(window.innerWidth<=700){
+    document.getElementById('main').classList.remove('mob-open');
+    document.getElementById('cv').style.display='none';
+  }
   await ensureGlobal();
   await loadMyChats();
 }
+
+function isMobile(){return window.innerWidth<=700;}
+
 
 /* == GLOBAL CHAT == */
 async function ensureGlobal(){
@@ -1036,6 +1042,7 @@ async function openChat(chat){
   document.getElementById('welcome').style.display='none';
   const cv=document.getElementById('cv');cv.style.display='flex';
   document.getElementById('cpp').classList.remove('open');
+  document.getElementById('sp').classList.remove('open');
   // Визначаємо іконку та назву — для DM підтягуємо свіжі дані з Firebase
   let icon='💬',name='Чат',meta='';
   if(chat.type==='dm'){
@@ -1090,12 +1097,13 @@ async function openChat(chat){
 
 /* == МОБІЛЬНА КНОПКА "НАЗАД" == */
 window.mobGoBack=()=>{
-  if(window.innerWidth>700) return;
+  if(!isMobile()) return;
   // Закриваємо всі внутрішні панелі
   document.getElementById('cpp').classList.remove('open');
   document.getElementById('sp').classList.remove('open');
-  // Ховаємо екран чату — повертаємось до списку
+  // Ховаємо екран чату — повертаємось до списку чатів
   document.getElementById('main').classList.remove('mob-open');
+  // Знімаємо активний стан з чату в списку (але не скидаємо curChatId — пам'ятаємо що було відкрито)
 };
 
 /* == РЕНДЕР ПОВІДОМЛЕННЯ == */
@@ -1322,6 +1330,7 @@ window.leaveChat=async()=>{
     document.getElementById('cv').style.display='none';
     document.getElementById('welcome').style.display='flex';
   }
+  curChatId=null;curChatData=null;
   toast('Ви покинули чат');
 };
 
@@ -1551,17 +1560,34 @@ function renderAccSwitcher(){
 window.toggleAccSw=()=>document.getElementById('acc-sw').classList.toggle('open');
 document.addEventListener('click',e=>{if(!document.getElementById('cur-acc').contains(e.target))document.getElementById('acc-sw').classList.remove('open');});
 
-// Мобільна: кнопка «назад» браузера / Android back — вертає до списку чатів
+// Android / browser back button — вертає до списку
 window.addEventListener('popstate',()=>{
   if(window.innerWidth<=700){
     const main=document.getElementById('main');
     if(main.classList.contains('mob-open')){
       window.mobGoBack();
-      history.pushState(null,'',location.href); // залишаємо в history щоб знову спрацювало
+      history.pushState(null,'',location.href);
     }
   }
 });
-// Додаємо history entry щоб back button спрацював
+
+// Resize: якщо повернули пристрій або відкрили на десктопі — відновлюємо вигляд
+window.addEventListener('resize',()=>{
+  if(window.innerWidth>700){
+    // Десктоп: показуємо main і welcome якщо немає відкритого чату
+    document.getElementById('main').classList.remove('mob-open');
+    document.getElementById('main').style.transform='';
+    if(!curChatId){
+      document.getElementById('welcome').style.display='flex';
+      document.getElementById('cv').style.display='none';
+    }
+  } else {
+    // Знову мобільний: ховаємо welcome, main без mob-open = список
+    document.getElementById('welcome').style.display='none';
+    if(!curChatId) document.getElementById('main').classList.remove('mob-open');
+  }
+});
+
 document.addEventListener('DOMContentLoaded',()=>{
   if(window.innerWidth<=700) history.pushState(null,'',location.href);
 });
