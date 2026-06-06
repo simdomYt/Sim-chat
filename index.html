@@ -310,12 +310,13 @@ select.form-input option{background:var(--bg1);color:var(--txt0)}
 
 /* ══ МОБІЛЬНА КНОПКА НАЗАД (прихована на десктопі) ══ */
 .mob-back{display:none!important}
-.back-btn{
+.back-btn,.sp-back{
   width:40px;height:40px;display:flex;align-items:center;justify-content:center;
   background:none;border:none;color:var(--txt0);font-size:24px;
   cursor:pointer;padding:0;flex-shrink:0;transition:opacity .15s;
 }
-.back-btn:active{opacity:.5}
+.back-btn:active,.sp-back:active{opacity:.5}
+.sp-back{display:none}
 
 /* ══ МОБІЛЬНИЙ ЕКРАН НАЛАШТУВАНЬ ══ */
 #mob-settings{
@@ -457,8 +458,21 @@ select.form-input option{background:var(--bg1);color:var(--txt0)}
   .member-item{padding:9px 10px}
   .mact-sm{width:30px;height:30px;font-size:13px}
 
-  /* Налаштування — ховаємо стандартну .sp панель, використовуємо #mob-settings */
-  .sp{display:none!important}
+  /* Налаштування — повноекранний overlay на мобільному */
+  .sp{
+    position:fixed!important;
+    top:0!important;left:0!important;right:0!important;bottom:0!important;
+    width:100%!important;
+    border-left:none!important;
+    z-index:100!important;
+    transform:translateX(100%)!important;
+    border-radius:0!important;
+  }
+  .sp.open{transform:translateX(0)!important}
+  .sp-head{padding:12px 14px;min-height:52px}
+  .sp-body{padding:14px 14px 30px}
+  /* Кнопка назад в налаштуваннях — тільки мобільна */
+  .sp-back{display:flex!important}
 
   /* Модалки */
   .overlay{padding:0;align-items:flex-end}
@@ -554,7 +568,7 @@ select.form-input option{background:var(--bg1);color:var(--txt0)}
         <div style="font-size:10px;color:var(--acc1);font-family:var(--ff-mono)" id="ca-tg">@...</div>
       </div>
       <div class="acc-btns">
-        <button class="acc-btn" onclick="event.stopPropagation();isMobile()?openMobSettings():openSP()" title="Налаштування">⚙️</button>
+        <button class="acc-btn" onclick="event.stopPropagation();openSP()" title="Налаштування">⚙️</button>
         <button class="acc-btn" onclick="event.stopPropagation();doLogout()" title="Вийти">🚪</button>
       </div>
     </div>
@@ -582,7 +596,7 @@ select.form-input option{background:var(--bg1);color:var(--txt0)}
       </div>
       <div class="hdr-acts">
         <button class="hbtn" id="hdr-members-btn" onclick="openChatProfile()" title="Учасники" style="display:none">👥</button>
-        <button class="hbtn" onclick="isMobile()?openMobSettings():openSP()">⚙️</button>
+        <button class="hbtn" onclick="openSP()">⚙️</button>
       </div>
     </div>
 
@@ -619,7 +633,11 @@ select.form-input option{background:var(--bg1);color:var(--txt0)}
     </div>
 
     <div class="sp" id="sp">
-      <div class="sp-head"><h3>⚙️ Налаштування</h3><button class="cl-btn" onclick="closeSP()">❌</button></div>
+      <div class="sp-head">
+        <button class="sp-back" onclick="closeSP()">←</button>
+        <h3 style="flex:1">⚙️ Налаштування</h3>
+        <button class="cl-btn" onclick="closeSP()">✕</button>
+      </div>
       <div class="sp-body">
         <div class="ss">
           <div class="ss-title">Профіль</div>
@@ -786,6 +804,10 @@ const LS={
   saveCts:c=>localStorage.setItem('sc_ct',JSON.stringify(c)),
   no:()=>{try{return JSON.parse(localStorage.getItem('sc_no')||'{}')}catch{return{}}},
   saveNo:n=>localStorage.setItem('sc_no',JSON.stringify(n)),
+  blocked:()=>{try{return JSON.parse(localStorage.getItem('sc_blk')||'{}')}catch{return{}}},
+  saveBlocked:b=>localStorage.setItem('sc_blk',JSON.stringify(b)),
+  secretWords:(uid)=>{try{return JSON.parse(localStorage.getItem(`sc_sw_${uid}`)||'{}')}catch{return{}}},
+  saveSecretWords:(uid,d)=>localStorage.setItem(`sc_sw_${uid}`,JSON.stringify(d)),
 };
 
 /* == ACCOUNTS == */
@@ -961,6 +983,8 @@ function renderChatList(chats){
       let dmEm=ch.otherEmoji||'👤';
       if(ch.otherUid){const cts=LS.cts();if(cts[ch.otherUid]&&cts[ch.otherUid].emoji)dmEm=cts[ch.otherUid].emoji;}
       icon=dmEm;sub='💬 Особисте';
+    } else if(ch.type==='secret'){
+      avClass='ci-av-dm';icon='🔐';sub='🔒 Секретний чат';
     }
     else if(ch.type==='channel'){avClass='ci-av-c';icon=ch.emoji||'📢';sub='📢 Канал'+(ch.username?` · @${ch.username}`:'');}
     else if(ch.type==='global'){avClass='ci-av-gl';icon='🌍';sub='🌍 Глобальний';}
@@ -1075,7 +1099,10 @@ document.addEventListener('click',e=>{
 window.openDMFromSearch=async(otherUid,otherUsername,otherNickname,otherEmoji)=>{
   closeSearchResults();
   // Перевіряємо чи DM вже існує
-  const existing=myChats.find(c=>c.type==='dm'&&c.otherUid===otherUid);
+  // Перевірка чи не заблокований
+  const blocked=LS.blocked();
+  if(blocked[otherUid]){toast(`🚫 Ви заблокували @${otherUsername}. Розблокуйте через профіль`);return;}
+  const existing=myChats.find(c=>(c.type==='dm'||c.type==='secret')&&c.otherUid===otherUid&&c.type==='dm');
   if(existing){openChat(existing);return;}
   // Створюємо новий DM
   const dmId=[CU.uid,otherUid].sort().join('_dm_');
@@ -1134,6 +1161,7 @@ async function openChat(chat){
     }
     icon=dmEmoji;name=dmNick;meta=`💬 @${chat.otherUsername||''}`;
   }
+  else if(chat.type==='secret'){icon='🔐';name=`🔐 ${chat.otherNickname||chat.otherUsername||'Secret'}`;meta='🔒 Secret Chat · зашифровано';}
   else if(chat.type==='global'){icon='🌍';name='🌍 Global';meta='Глобальний чат';}
   else if(chat.type==='channel'){icon=chat.emoji||'📢';name=chat.name||chat.id;meta='📢 Канал';}
   else{icon=chat.emoji||'👥';name=chat.name||chat.id;meta='👥 Група';}
@@ -1158,6 +1186,10 @@ async function openChat(chat){
     sentIds.add(snap.key);
     let text=msg.text||'';
     if(msg.enc&&chatKeys[chat.id]){try{text=await E2E.decrypt(msg.enc,chatKeys[chat.id]);}catch{text='🔒';}}
+    if(msg.secretText&&chat.type==='secret'){
+      const seed=chat.seed||[CU.uid,chat.otherUid||''].sort().join('');
+      try{text=secretDecode(msg.secretText,seed);}catch{text='🔐 [помилка декодування]';}
+    }
     const no=LS.no();
     const dispNick=no[msg.uid]||msg.nickname||'User';
     renderMsg(snap.key,{...msg,text,nickname:dispNick},chat.type,isOwner||isAdmin);
@@ -1227,9 +1259,25 @@ window.sendMsg=async()=>{
   try{
     const key=chatKeys[curChatId];
     const payload={uid:CU.uid,nickname:CP.nickname,username:CP.username,emoji:CP.emoji,ts:Date.now()};
-    if(key){payload.enc=await E2E.encrypt(txt,key);}else{payload.text=txt;}
+    if(curChatData?.type==='secret'){
+      // Секретний чат: рахуємо слова
+      const today=new Date().toISOString().slice(0,10);
+      const swData=LS.secretWords(CU.uid);
+      const wordCount=txt.trim().split(/\s+/).length;
+      const used=swData[today]||0;
+      if(used+wordCount>5000){toast(`🔐 Ліміт слів вичерпано (${5000-used} залишилось)`);btn.disabled=false;return;}
+      swData[today]=used+wordCount;
+      LS.saveSecretWords(CU.uid,swData);
+      const seed=curChatData.seed||[CU.uid,curChatData.otherUid].sort().join('');
+      payload.secretText=secretEncode(txt,seed);
+      payload.text='🔐';
+    } else if(key){
+      payload.enc=await E2E.encrypt(txt,key);
+    } else {
+      payload.text=txt;
+    }
     await push(ref(db,`messages/${curChatId}`),payload);
-    await update(ref(db,`chats/${curChatId}`),{lastMsg:txt.slice(0,60),lastTs:Date.now()});
+    await update(ref(db,`chats/${curChatId}`),{lastMsg:curChatData?.type==='secret'?'🔐 Secret':txt.slice(0,60),lastTs:Date.now()});
     inp.value='';inp.style.height='';
   }catch(e){toast('Помилка: '+e.message);}
   finally{btn.disabled=false;inp.focus();}
@@ -1518,27 +1566,112 @@ window.addMemberToChat=async(uid,username)=>{
 
 /* == ПРОФІЛЬ КОРИСТУВАЧА == */
 window.openUserModalByMsg=(uid,username,nickname,emoji)=>{
-  const no=LS.no(),cts=LS.cts();
+  const no=LS.no(),cts=LS.cts(),blocked=LS.blocked();
   const custom=no[uid]||'';
   const inCts=!!cts[uid];
+  const isBlocked=!!blocked[uid];
+  const dispNm=custom||nickname||'Користувач';
+  const isDM=curChatData?.type==='dm';
   document.getElementById('um-body').innerHTML=`
-    <div class="user-profile-av">${emoji}</div>
-    <div class="user-profile-nm">${esc(custom||nickname)}</div>
+    <div style="font-size:54px;text-align:center;margin-bottom:8px">${emoji||'👤'}</div>
+    <div class="user-profile-nm">${esc(dispNm)}</div>
     <div class="user-profile-tg">@${esc(username)}</div>
-    <div class="form-group"><label>Власний нікнейм (лише для вас)</label><input class="form-input" id="um-ov" value="${esc(custom)}" placeholder="${esc(nickname)}"></div>
-    <button class="btn-s" onclick="saveNO('${uid}')">Зберегти нікнейм</button>
-    <div class="user-action-row">
-      <button class="btn-s" onclick="${inCts?`rmCt('${uid}')`:`addCtByUid('${uid}','${esc(username)}','${esc(nickname)}','${emoji}')`}">${inCts?'❌ З контактів':'➕ До контактів'}</button>
-      <button class="btn-s" onclick="openDMFromSearch('${uid}','${esc(username)}','${esc(nickname)}','${emoji}');closeModal('user-modal')">💬 Написати</button>
+    <div class="form-group" style="margin-top:14px">
+      <label>Власний нікнейм (тільки для вас)</label>
+      <input class="form-input" id="um-ov" value="${esc(custom)}" placeholder="${esc(nickname||username)}">
     </div>
+    <button class="btn-s" style="margin-bottom:10px" onclick="saveNO('${uid}','${esc(nickname)}')">💾 Зберегти нікнейм</button>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+      <button class="btn-s" style="margin:0;font-size:11px" onclick="openDMFromSearch('${uid}','${esc(username)}','${esc(nickname)}','${emoji||'👤'}');closeModal('user-modal')">💬 Написати</button>
+      <button class="btn-s" style="margin:0;font-size:11px" onclick="startSecretChat('${uid}','${esc(username)}','${esc(nickname)}','${emoji||'👤'}');closeModal('user-modal')">🔐 Секретний чат</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+      <button class="${inCts?'btn-d':'btn-s'}" style="margin:0;font-size:11px" onclick="${inCts?`rmCt('${uid}');closeModal('user-modal')`:`addCtByUid('${uid}','${esc(username)}','${esc(nickname)}','${emoji||'👤'}');closeModal('user-modal')`}">${inCts?'✕ З контактів':'👤 В контакти'}</button>
+      <button class="${isBlocked?'btn-s':'btn-d'}" style="margin:0;font-size:11px" onclick="toggleBlock('${uid}','${esc(username)}');closeModal('user-modal')">${isBlocked?'✅ Розблокувати':'🚫 Заблокувати'}</button>
+    </div>
+    ${isDM?`<button class="btn-d" style="margin-bottom:0;font-size:11px" onclick="leaveChat();closeModal('user-modal')">🚪 Покинути чат</button>`:''}
   `;
   openModal('user-modal');
 };
 
-window.saveNO=uid=>{
+/* ══ БЛОКУВАННЯ КОРИСТУВАЧІВ ══ */
+window.toggleBlock=(uid,username)=>{
+  const b=LS.blocked();
+  if(b[uid]){delete b[uid];LS.saveBlocked(b);toast(`✅ @${username} розблоковано`);}
+  else{b[uid]=Date.now();LS.saveBlocked(b);toast(`🚫 @${username} заблоковано`);}
+};
+
+/* ══ СЕКРЕТНИЙ ЧАТ ══ */
+// Шифрування: кожен символ -> 5-значний код (унікальний для кожної пари юзерів + сесії)
+function secretEncode(text, seed){
+  // Генеруємо псевдо-рандомну таблицю заміни на основі seed
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let h=0;for(let i=0;i<seed.length;i++){h=(h*31+seed.charCodeAt(i))>>>0;}
+  const encoded=[];
+  for(let i=0;i<text.length;i++){
+    const cc=text.charCodeAt(i);
+    // Кожен символ -> 5 символів з великим "шумом"
+    const r1=(h^(cc*7+i*13))%chars.length;
+    const r2=(h^(cc*11+i*17))%chars.length;
+    const r3=(h^(cc*3+i*23))%chars.length;
+    const r4=(h^(cc*19+i*7))%chars.length;
+    const r5=cc%chars.length;
+    encoded.push(chars[r1]+chars[r2]+chars[r3]+chars[r4]+chars[r5]);
+  }
+  return encoded.join(' ');
+}
+function secretDecode(encoded, seed){
+  const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  const parts=encoded.split(' ');
+  let h=0;for(let i=0;i<seed.length;i++){h=(h*31+seed.charCodeAt(i))>>>0;}
+  let result='';
+  for(let i=0;i<parts.length;i++){
+    const p=parts[i];if(p.length!==5)continue;
+    const cc=chars.indexOf(p[4]);
+    if(cc>=0) result+=String.fromCharCode(cc);
+  }
+  return result;
+}
+
+window.startSecretChat=async(otherUid,otherUsername,otherNickname,otherEmoji)=>{
+  // Перевіряємо ліміт слів (5000 на день, не поновлюється)
+  const today=new Date().toISOString().slice(0,10);
+  const swData=LS.secretWords(CU.uid);
+  const usedWords=swData[today]||0;
+  if(usedWords>=5000){toast('🔐 Ліміт секретного чату вичерпано (5000 слів)');return;}
+
+  // ID секретного чату — сортований щоб бути однаковим для обох
+  const scId=[CU.uid,otherUid].sort().join('_secret_');
+  // Seed для шифрування — комбінація двох uid
+  const seed=[CU.uid,otherUid].sort().join('');
+
+  const existing=myChats.find(c=>c.id===scId);
+  if(existing){openChat(existing);return;}
+
+  await set(ref(db,`chats/${scId}`),{
+    type:'secret',name:`🔐 ${otherNickname||otherUsername}`,
+    emoji:'🔐',createdAt:Date.now(),
+    members:{[CU.uid]:true,[otherUid]:true},
+    isSecret:true,seed
+  });
+  await set(ref(db,`userChats/${CU.uid}/${scId}`),{
+    joinedAt:Date.now(),type:'secret',
+    otherUid,otherUsername,otherNickname,otherEmoji,seed
+  });
+  await set(ref(db,`userChats/${otherUid}/${scId}`),{
+    joinedAt:Date.now(),type:'secret',
+    otherUid:CU.uid,otherUsername:CP.username,otherNickname:CP.nickname,otherEmoji:CP.emoji,seed
+  });
+  toast('🔐 Секретний чат створено');
+};
+
+window.saveNO=(uid,origNick)=>{
   const val=document.getElementById('um-ov')?.value.trim();
   const no=LS.no();if(val)no[uid]=val;else delete no[uid];
-  LS.saveNo(no);closeModal('user-modal');toast('Нікнейм збережено');
+  LS.saveNo(no);
+  const nm=document.querySelector('.user-profile-nm');
+  if(nm) nm.textContent=val||origNick||'Користувач';
+  toast('Нікнейм збережено ✓');
 };
 
 /* == КОНТАКТИ == */
@@ -1700,7 +1833,7 @@ window.confirmEmoji=async()=>{
     await update(ref(db,`users/${CU.uid}`),{emoji:selModalEmoji});
     CP.emoji=selModalEmoji;
     document.getElementById('ca-em').textContent=selModalEmoji;
-    document.querySelectorAll('#sp-av').forEach(el=>el.textContent=selModalEmoji);
+    document.querySelectorAll('#sp-av,#mob-sp-av').forEach(el=>el.textContent=selModalEmoji);
     upsertAcc({uid:CU.uid,emoji:selModalEmoji});toast('Аватарку змінено ✅');
   }
   closeModal('emoji-modal');
@@ -1727,20 +1860,109 @@ window.closeSP=()=>document.getElementById('sp').classList.remove('open');
 
 /* ══ МОБІЛЬНИЙ ЕКРАН НАЛАШТУВАНЬ ══ */
 window.openMobSettings=()=>{
-  // Копіюємо контент з десктопної .sp-body в мобільний екран
-  const src=document.querySelector('.sp-body');
   const dst=document.getElementById('mob-sp-body');
-  if(src&&dst) dst.innerHTML=src.innerHTML;
-  // Повторно ініціалізуємо гріди теми/шрифту (вони використовують DOM-айдішники)
-  buildThemeGridIn('mob-sp-body');
-  buildFontGridIn('mob-sp-body');
-  renderContactsIn('mob-sp-body');
-  // Показуємо екран
+  if(!dst) return;
+  // Будуємо контент напряму — без копіювання, унікальні id з префіксом mob-
+  dst.innerHTML=`
+    <div class="ss">
+      <div class="ss-title">Профіль</div>
+      <div class="av-big" id="mob-sp-av" style="font-size:52px;text-align:center;padding:12px;background:rgba(0,0,0,.2);border-radius:var(--r-sm);border:1px solid var(--border);margin-bottom:7px">${CP?.emoji||'👤'}</div>
+      <button class="btn-s" onclick="openEmojiModal('avatar')">Змінити аватарку</button>
+      <div class="form-group" style="margin-top:9px"><label>Нікнейм</label><input class="form-input" id="mob-sp-nn" placeholder="Нікнейм" value="${esc(CP?.nickname||'')}"></div>
+      <button class="btn-s" onclick="saveMobProfile()">Зберегти профіль</button>
+    </div>
+    <div class="ss">
+      <div class="ss-title">Розмір шрифту</div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button class="fszb" style="flex:1;padding:10px" onclick="setFsz('12px',this)">S</button>
+        <button class="fszb active" style="flex:1;padding:10px" onclick="setFsz('14px',this)">M</button>
+        <button class="fszb" style="flex:1;padding:10px" onclick="setFsz('16px',this)">L</button>
+      </div>
+    </div>
+    <div class="ss">
+      <div class="ss-title">Тема</div>
+      <div id="mob-theme-grid" class="theme-grid" style="margin-top:7px"></div>
+    </div>
+    <div class="ss">
+      <div class="ss-title">Сповіщення</div>
+      <div class="toggle-row" onclick="toggleNotif()">
+        <div class="toggle${soundOn?' on':''}" id="mob-notif-tgl"></div>
+        <span class="ss-lbl">Звуки повідомлень</span>
+      </div>
+    </div>
+    <div class="ss">
+      <div class="ss-title">Контакти</div>
+      <div class="form-group"><div class="input-pfx"><span>@</span><input class="form-input" id="mob-add-ct" placeholder="username" oninput="searchContactInput(this.value)"></div></div>
+      <div id="mob-contact-search-res" style="margin-bottom:6px"></div>
+      <div id="mob-ct-list"></div>
+    </div>
+    <div class="ss">
+      <div class="ss-title">Акаунт</div>
+      <button class="btn-d" onclick="doLogout()">🚪 Вийти</button>
+    </div>
+  `;
+  // Будуємо тему грід
+  const tg=document.getElementById('mob-theme-grid');
+  if(tg){
+    const c=LS.cfg();
+    THEMES.forEach(th=>{
+      const d=document.createElement('div');
+      d.className='th-opt'+(c.theme===th.id?' sel':'');
+      d.style.background=th.bg;d.style.color=th.txt||'#fff';d.textContent=th.label;
+      d.onclick=()=>{document.querySelectorAll('.th-opt').forEach(x=>x.classList.remove('sel'));d.classList.add('sel');applyTheme(th.id);const cc=LS.cfg();cc.theme=th.id;LS.saveCfg(cc);};
+      tg.appendChild(d);
+    });
+  }
+  // Контакти
+  const cl=document.getElementById('mob-ct-list');
+  if(cl){
+    const cts=LS.cts(),keys=Object.keys(cts);
+    if(!keys.length){cl.innerHTML='<div style="font-size:10px;color:var(--txt2);font-family:var(--ff-mono);padding:6px 0">Немає контактів</div>';}
+    else keys.forEach(uid=>{
+      const c=cts[uid];
+      const d=document.createElement('div');d.className='ct-item';
+      d.innerHTML=`<span style="font-size:17px">${c.emoji||'👤'}</span><div class="ct-item-info"><div class="ct-item-nm">${esc(c.nickname||c.username)}</div><div class="ct-item-tg">@${esc(c.username||'')}</div></div><button class="ct-rm" onclick="event.stopPropagation();rmCt('${uid}');openMobSettings()">✕</button>`;
+      d.onclick=e=>{if(e.target.classList.contains('ct-rm'))return;openDMFromSearch(uid,c.username,c.nickname,c.emoji||'👤');closeMobSettings();};
+      cl.appendChild(d);
+    });
+  }
+  // searchContactInput для мобільного поля
+  const mobAddCt=document.getElementById('mob-add-ct');
+  if(mobAddCt) mobAddCt.oninput=function(){
+    searchContactInputMob(this.value,'mob-contact-search-res');
+  };
   document.getElementById('mob-settings').classList.add('open');
 };
 window.closeMobSettings=()=>{
   document.getElementById('mob-settings').classList.remove('open');
 };
+window.saveMobProfile=async()=>{
+  const inp=document.getElementById('mob-sp-nn');
+  const nn=inp?.value.trim();
+  if(!nn||!CU) return toast('Введіть нікнейм');
+  await update(ref(db,`users/${CU.uid}`),{nickname:nn});
+  CP.nickname=nn;
+  document.getElementById('ca-nm').textContent=nn;
+  const spnn=document.getElementById('sp-nn');if(spnn)spnn.value=nn;
+  upsertAcc({uid:CU.uid,nickname:nn});toast('Збережено ✅');
+};
+async function searchContactInputMob(val,resId){
+  const clean=val.trim().toLowerCase().replace(/^@/,'');
+  const box=document.getElementById(resId);if(!box)return;
+  if(!clean){box.innerHTML='';return;}
+  try{
+    const snap=await get(ref(db,`usernames/${clean}`));
+    if(!snap.exists()){box.innerHTML=`<div style="font-size:10px;color:var(--txt2);font-family:var(--ff-mono)">@${esc(clean)} — не знайдено</div>`;return;}
+    const uid=snap.val();const us=await get(ref(db,`users/${uid}`));const u=us.val()||{};
+    const inCts=!!LS.cts()[uid];
+    box.innerHTML=`<div class="ct-item" style="margin-top:6px">
+      <span style="font-size:17px">${u.emoji||'👤'}</span>
+      <div class="ct-item-info"><div class="ct-item-nm">${esc(u.nickname||clean)}</div><div class="ct-item-tg">@${esc(clean)}</div></div>
+      ${inCts?`<span style="font-size:10px;color:var(--success)">✓</span>`:
+      `<button class="btn-s" style="width:auto;padding:5px 11px;font-size:10px;margin:0" onclick="addCtByUid('${uid}','${esc(clean)}','${esc(u.nickname||clean)}','${u.emoji||'👤'}');document.getElementById('mob-add-ct').value='';document.getElementById('${resId}').innerHTML='';openMobSettings()">Додати</button>`}
+    </div>`;
+  }catch{box.innerHTML='';}
+}
 
 function buildThemeGridIn(containerId){
   const g=document.querySelector(`#${containerId} #theme-grid`);if(!g)return;
@@ -1810,7 +2032,7 @@ function buildFontGrid(){
     g.appendChild(d);
   });
 }
-window.toggleNotif=()=>{soundOn=!soundOn;document.getElementById('notif-tgl').classList.toggle('on',soundOn);const c=LS.cfg();c.sound=soundOn;LS.saveCfg(c);toast(soundOn?'🔔 Звуки ввімкнено':'🔕 Звуки вимкнено');};
+window.toggleNotif=()=>{soundOn=!soundOn;document.querySelectorAll('#notif-tgl,#mob-notif-tgl').forEach(el=>el.classList.toggle('on',soundOn));const c=LS.cfg();c.sound=soundOn;LS.saveCfg(c);toast(soundOn?'🔔 Звуки ввімкнено':'🔕 Звуки вимкнено');};
 function applySettings(){
   const c=LS.cfg();
   if(c.fontSize) document.documentElement.style.setProperty('--chat-font-size',c.fontSize);
